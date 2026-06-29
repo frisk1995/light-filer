@@ -62,6 +62,7 @@ pub struct FerroApp {
     pub preview_idx: Option<usize>,
     pub quick_access: Vec<(String, PathBuf)>,
     pub pending_action: Option<ContextAction>,
+    pub delete_confirm: Option<Vec<PathBuf>>,   // 削除確認待ちパス一覧
     pub rename_state: Option<(PathBuf, String)>,
     pub show_hidden: bool,
     pub drives: Vec<DriveInfo>,
@@ -109,6 +110,7 @@ impl FerroApp {
             preview_idx: None,
             quick_access,
             pending_action: None,
+            delete_confirm: None,
             rename_state: None,
             show_hidden: false,
             drives: list_drives(),
@@ -215,12 +217,8 @@ impl FerroApp {
                 self.rename_state = Some((target, display_name));
             }
             Some(ContextAction::Delete(paths)) => {
-                for p in &paths {
-                    if p.is_dir() { let _ = std::fs::remove_dir_all(p); }
-                    else { let _ = std::fs::remove_file(p); }
-                }
-                self.main_pane.selection.clear();
-                self.refresh();
+                // 即削除せず確認ダイアログを表示
+                self.delete_confirm = Some(paths);
             }
             Some(ContextAction::Rename(path)) => {
                 let name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
@@ -259,11 +257,71 @@ impl FerroApp {
     fn update_tokens(&mut self) {
         self.tokens = Tokens::new(self.theme, self.accent);
     }
+
+    pub fn show_delete_confirm(&mut self, ctx: &egui::Context) {
+        if self.delete_confirm.is_none() { return; }
+
+        let paths = self.delete_confirm.as_ref().unwrap();
+        let count = paths.len();
+        let label = if count == 1 {
+            let name = paths[0].file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_default();
+            format!("「{}」を削除しますか？", name)
+        } else {
+            format!("{}個のアイテムを削除しますか？", count)
+        };
+
+        let mut confirmed = false;
+        let mut cancelled = false;
+
+        egui::Window::new("削除の確認")
+            .collapsible(false)
+            .resizable(false)
+            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+            .show(ctx, |ui| {
+                ui.set_min_width(320.0);
+                ui.add_space(4.0);
+                ui.label(egui::RichText::new(&label).size(14.0));
+                ui.add_space(4.0);
+                ui.label(
+                    egui::RichText::new("この操作は元に戻せません。")
+                        .size(12.0)
+                        .color(self.tokens.dim),
+                );
+                ui.add_space(16.0);
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui.button(
+                        egui::RichText::new("削除").color(egui::Color32::from_rgb(0xc8, 0x37, 0x2c))
+                    ).clicked() {
+                        confirmed = true;
+                    }
+                    ui.add_space(8.0);
+                    if ui.button("キャンセル").clicked() {
+                        cancelled = true;
+                    }
+                });
+                ui.add_space(4.0);
+            });
+
+        if confirmed {
+            let paths = self.delete_confirm.take().unwrap();
+            for p in &paths {
+                if p.is_dir() { let _ = std::fs::remove_dir_all(p); }
+                else { let _ = std::fs::remove_file(p); }
+            }
+            self.main_pane.selection.clear();
+            self.refresh();
+        } else if cancelled {
+            self.delete_confirm = None;
+        }
+    }
 }
 
 impl eframe::App for FerroApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.process_pending_action(ctx);
+        self.show_delete_confirm(ctx);
         self.poll_results();
 
         let tok = self.tokens.clone();
