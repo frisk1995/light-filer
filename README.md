@@ -1,5 +1,13 @@
 # filox
 
+## ダウンロード
+
+**インストール不要**。exe をダウンロードしてそのまま実行できます。
+
+[filox.exe をダウンロード (v0.4.2)](https://github.com/frisk1995/light-filer/releases/latest/download/filox.exe)
+
+または [Releases ページ](https://github.com/frisk1995/light-filer/releases) から最新版を取得してください。
+
 Rust + egui で実装した Windows 向け軽量ファイルマネージャー。
 
 ## 特徴
