@@ -1,3 +1,12 @@
 .aidesigner/*
 !.aidesigner/.gitkeep
 .playwright-mcp/
+
+# Added by cargo
+/target
+
+# Font package downloads (static variants / extra weights not used at runtime)
+assets/fonts/Material_Symbols_Outlined,Material_Symbols_Rounded,Material_Symbols_Sharp/
+
+# Design reference files
+design_handoff_ferro_filer/
