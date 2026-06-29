@@ -93,6 +93,7 @@ impl Entry {
     }
 
     pub fn size_display(&self) -> String {
+        if self.is_cloud_only { return "☁".to_owned(); }
         match self.size {
             None => String::new(),
             Some(0) => "0 B".to_owned(),

@@ -116,7 +116,9 @@ pub fn spawn_worker() -> (Sender<FsMsg>, Receiver<ScanResult>) {
             match msg {
                 FsMsg::Request(path) => {
                     let t = Instant::now();
-                    let entries = scan_dir(&path);
+                    // panic を捕捉してスレッドを生かし続ける
+                    let entries = std::panic::catch_unwind(|| scan_dir(&path))
+                        .unwrap_or_default();
                     let elapsed_ms = t.elapsed().as_millis() as u64;
                     let free_bytes = free_space(&path);
                     let _ = res_tx.send(ScanResult {
@@ -161,7 +163,10 @@ fn scan_dir(path: &Path) -> Vec<Entry> {
         .filter_map(|e| {
             let name = e.file_name().to_string_lossy().to_string();
             let entry_path = e.path();
-            let meta = e.metadata().ok()?;
+            // symlink_metadata はリパースポイントを辿らないため
+            // OneDrive クラウドプレースホルダーを安全に読める
+            let meta = std::fs::symlink_metadata(&entry_path).ok()?;
+            let is_cloud_only = is_cloud_only_file(&meta);
             let kind = if meta.is_dir() {
                 EntryKind::Dir
             } else if meta.is_symlink() {
@@ -169,10 +174,16 @@ fn scan_dir(path: &Path) -> Vec<Entry> {
             } else {
                 EntryKind::File
             };
-            let size = if meta.is_file() { Some(meta.len()) } else { None };
+            // クラウド専用ファイルのサイズは実ファイルを開かず 0 扱い
+            let size = if kind == EntryKind::File && !is_cloud_only {
+                Some(meta.len())
+            } else if kind == EntryKind::File {
+                Some(0)
+            } else {
+                None
+            };
             let modified = meta.modified().ok().map(|st| st.into());
             let is_hidden = name.starts_with('.');
-            let is_cloud_only = is_cloud_only_file(&meta);
             Some(Entry {
                 name,
                 path: entry_path,
