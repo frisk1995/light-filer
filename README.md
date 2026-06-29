@@ -1,118 +1,91 @@
-# harness
+# filox
 
-Claude Code のサブエージェント機能を使った自動開発パイプライン。短いプロダクトアイデアを入力するだけで、企画 → デザイン → 実装 → 検証のサイクルが自動で回り続ける。
+Rust + egui で実装した Windows 向け軽量ファイルマネージャー。
 
-## 概要
+## 特徴
 
-```
-あなた（1〜4行のアイデア）
-    ↓
-Planner  ── /docs/spec.md を生成
-    ↓
-UIDesigner（提案モード） ── 2〜3パターンのデザイン案を生成・プレビュー
-    ↓
-あなた（デザイン案を選択・承認）
-    ↓
-UIDesigner（確定モード） ── /docs/design.md にデザイン仕様を記録
-    ↓
-Generator ── スプリント単位で実装 ── /docs/progress.md に記録
-    ↓
-Evaluator ── Playwright で実動作テスト ── /docs/feedback/sprint-N.md に結果出力
-    ↓ 合格
-次のスプリントへ（Generator に戻る）
-    ↓ 不合格
-Generator に差し戻し（修正後に再テスト）
-```
+- **高速起動** — egui の即時描画モードにより低オーバーヘッドで動作
+- **2 ビューモード** — リスト形式の Explorer とグリッド形式の Modern を切り替え可能
+- **ダーク / ライトテーマ** — ツールバーのボタン1つで切り替え
+- **Material Symbols アイコン** — ファイル種別に応じたアイコン表示
+- **クイックアクセス** — よく使うフォルダをサイドバーに登録・永続保存
+- **全ドライブ対応** — C: 以外のドライブも自動検出し、使用量バーを表示
+- **隠しファイル表示切替** — ツールバーのアイコンで即時フィルタリング
+- **右クリックメニュー** — 開く / パスをコピー / ターミナルで開く / 名前の変更 / 削除
+- **単一 exe 配布** — 静的 CRT リンクで追加ランタイム不要
 
-## エージェント
+## 動作環境
 
-| エージェント | 役割 | モデル |
-|---|---|---|
-| **Planner** | アイデアを製品仕様書（`/docs/spec.md`）に展開する | Opus |
-| **UIDesigner** | AIDesigner MCP でデザイン案を生成し、ユーザー承認後に `/docs/design.md` を確定する | Opus |
-| **Generator** | 仕様書・デザイン仕様を読み、1スプリントずつ実装する | Opus |
-| **Evaluator** | Playwright MCP でアプリを実際に動かしてテストする | Opus |
+- Windows 10 / 11 (x86_64)
+- 日本語環境: Meiryo / Yu Gothic などの Windows システムフォントを自動使用
 
-## 使い方
+## ビルド方法
 
-### 1. 新しいプロジェクトを始める
+### 事前準備
 
-Claude Code を起動し、Planner エージェントにアイデアを渡す：
+Rust toolchain (stable) と Visual Studio Build Tools (MSVC) が必要です。
 
-```
-planner エージェントを使って以下のアイデアを仕様書にしてください：
-「シンプルなタスク管理アプリ。チームで共有できて、期限と優先度を設定できる」
+```powershell
+# フォントをダウンロード（初回のみ）
+powershell -ExecutionPolicy Bypass -File scripts/download_fonts.ps1
 ```
 
-### 2. デザイン案を生成・承認する
+### ビルド
 
-Planner が `/docs/spec.md` を生成したら、UIDesigner に提案を依頼する：
+```powershell
+# 開発ビルド
+cargo build
 
-```
-ui-designer エージェントでデザイン案を提案してください
-```
-
-UIDesigner が 2〜3パターンのデザインをプレビュー表示する。気に入った案を選んで確定する：
-
-```
-ui-designer エージェントで案Bを確定してください
-（修正がある場合）案Aをベースに、カラーをダーク系に変更して確定してください
+# リリースビルド（最適化・コンソール非表示）
+cargo build --release
 ```
 
-### 3. 実装・検証を繰り返す
+ビルド成果物: `target/release/filox.exe`
 
-デザインが確定したら Generator でスプリントを実装する：
+## フォント
 
-```
-generator エージェントでスプリント 1 を実装してください
-```
+以下のフォントを `assets/fonts/` に配置します（`download_fonts.ps1` で自動取得）:
 
-Generator の実装が終わったら Evaluator でテストする：
-
-```
-evaluator エージェントでスプリント 1 を評価してください
-```
-
-合格後は Generator → Evaluator を繰り返す。
-
-### 4. ファイル構成（自動生成）
-
-```
-docs/
-  spec.md               # Planner が生成する製品仕様書
-  design.md             # UIDesigner が確定するデザイン仕様書
-  progress.md           # Generator が記録する実装進捗
-  feedback/
-    sprint-1.md         # Evaluator が出力する評価結果
-    sprint-2.md
-    ...
-.aidesigner/
-  proposals.json        # UIDesigner が提案モードで保存するデザイン案一覧
-  runs/                 # AIDesigner が生成した HTML アーティファクト
-```
-
-## 評価基準
-
-| 基準 | 合格閾値 |
+| ファイル | 用途 |
 |---|---|
-| 機能完全性 | 4/5 以上 |
-| 動作安定性 | 4/5 以上 |
-| UI/UX品質 | 3/5 以上 |
-| エラーハンドリング | 3/5 以上 |
-| 回帰なし | 5/5（必須） |
-| デザイン仕様適合 | 3/5 以上（`design.md` がない場合は評価対象外） |
+| `MaterialSymbolsRounded.ttf` | UI アイコン (Material Symbols) |
+| `IBMPlexSans-Regular.ttf` | UI 本文フォント |
+| `JetBrainsMono-Regular.ttf` | パス・モノスペース表示 |
 
-1つでも閾値を下回ればスプリント不合格、Generator に自動差し戻し。
+日本語グリフは起動時に Windows システムフォント (`meiryo.ttc` 等) を自動ロードします。
 
-## 必要な MCP サーバ
+## 設定ファイル
 
-- **AIDesigner MCP** — UIDesigner がデザイン生成に使用（`.mcp.json` に設定済み）
-- **Playwright MCP** — Evaluator がブラウザ操作テストに使用（`.claude/agents/evaluator.md` に設定済み）
+クイックアクセスの登録内容は再起動後も保持されます。
 
-## 絶対ルール
+- 保存先: `%APPDATA%\filox\quick_access.txt`
+- 形式: `表示名<TAB>パス` の1行1エントリ（手動編集可）
 
-- **Planner は実装しない。UIDesigner はコードを書かない。Generator は仕様・デザインを変更しない。Evaluator はコードを修正しない。**
-- スプリントは Sprint 1 → 2 → 3 の順に実装する（スキップ禁止）。
-- **ユーザーがデザインを承認してから Generator を起動する。**
-- 各スプリント完了時にアプリが正常に起動・動作していること。
-- Generator は新スプリント着手前に、前スプリントの不合格フィードバックを先に修正する。
+## 操作方法
+
+| 操作 | 方法 |
+|---|---|
+| ディレクトリを開く | ダブルクリック |
+| ファイルを開く | ダブルクリック（既定アプリで起動） |
+| 複数選択 | Ctrl + クリック |
+| コンテキストメニュー | 右クリック |
+| 戻る / 進む | ツールバーの ‹ › ボタン |
+| 上の階層へ | ツールバーの ↑ ボタン |
+| 更新 | ツールバーの ↻ ボタン |
+| 隠しファイル表示切替 | ツールバーの 👁 ボタン |
+| クイックアクセスに追加 | ファイル一覧またはフォルダツリーで右クリック |
+
+## 技術スタック
+
+| 項目 | 詳細 |
+|---|---|
+| 言語 | Rust 2021 edition |
+| GUI | [eframe](https://github.com/emilk/egui/tree/master/crates/eframe) 0.29 / [egui](https://github.com/emilk/egui) 0.29 |
+| スレッド間通信 | [crossbeam-channel](https://github.com/crossbeam-rs/crossbeam) |
+| ファイルを開く | [open](https://github.com/Byron/open-rs) |
+| 既知フォルダ取得 | [dirs](https://github.com/dirs-dev/dirs-rs) |
+| リンク | 静的 CRT (`+crt-static`) |
+
+## ライセンス
+
+MIT
