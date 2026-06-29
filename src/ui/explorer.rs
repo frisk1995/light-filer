@@ -393,7 +393,6 @@ fn show_list(app: &mut FerroApp, ctx: &egui::Context, tok: &Tokens) {
                     if is_selected {
                         ui.painter()
                             .rect_filled(rect, Rounding::ZERO, tok.accent_soft);
-                        // Left accent bar
                         let bar = egui::Rect::from_min_size(
                             rect.min + Vec2::new(0.0, 4.0),
                             Vec2::new(2.0, rect.height() - 8.0),
@@ -403,6 +402,56 @@ fn show_list(app: &mut FerroApp, ctx: &egui::Context, tok: &Tokens) {
                     } else if resp.hovered() {
                         ui.painter()
                             .rect_filled(rect, Rounding::ZERO, tok.hover);
+                    }
+
+                    // リネーム中の行はインライン入力欄を表示
+                    let is_renaming = app.rename_state.as_ref()
+                        .map(|(p, _)| p == &entry.path)
+                        .unwrap_or(false);
+
+                    if is_renaming {
+                        // アイコンだけ描画
+                        let icon_x = rect.min.x + 8.0 + 9.0;
+                        let y = rect.center().y;
+                        ui.painter().text(
+                            egui::pos2(icon_x, y),
+                            egui::Align2::CENTER_CENTER,
+                            entry.icon_char().to_string(),
+                            FontId::proportional(18.0),
+                            entry.icon_color(tok.accent),
+                        );
+
+                        // TextEdit をアイコン右に配置
+                        let te_rect = egui::Rect::from_min_size(
+                            egui::pos2(rect.min.x + 30.0, rect.min.y + 4.0),
+                            Vec2::new(col_widths[0] - 36.0, ROW_H - 8.0),
+                        );
+                        let (commit, cancel) = {
+                            let (_, ref mut name) = *app.rename_state.as_mut().unwrap();
+                            let te_resp = ui.put(
+                                te_rect,
+                                egui::TextEdit::singleline(name).font(FontId::proportional(13.0)),
+                            );
+                            te_resp.request_focus();
+                            let enter  = ui.input(|inp| inp.key_pressed(egui::Key::Enter));
+                            let escape = ui.input(|inp| inp.key_pressed(egui::Key::Escape));
+                            (enter, escape || (te_resp.lost_focus() && !enter))
+                        };
+                        if commit {
+                            if let Some((old_path, new_name)) = app.rename_state.take() {
+                                if let Some(parent) = old_path.parent() {
+                                    let new_path = parent.join(&new_name);
+                                    if new_path != old_path && !new_name.is_empty() {
+                                        let _ = std::fs::rename(&old_path, &new_path);
+                                    }
+                                }
+                            }
+                            app.refresh();
+                        } else if cancel {
+                            // 新規作成によるリネームはキャンセル時にファイルを削除
+                            app.rename_state = None;
+                        }
+                        continue; // クリック・コンテキストメニュー処理をスキップ
                     }
 
                     draw_row(ui, tok, &rect, entry, is_selected, &col_widths);
