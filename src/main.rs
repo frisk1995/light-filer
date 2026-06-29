@@ -5,11 +5,15 @@ mod entry;
 mod fonts;
 mod fs;
 mod icons;
+pub mod log;
 mod state;
 mod theme;
 mod ui;
 
 fn main() -> eframe::Result<()> {
+    log::init();
+    log_info!("initializing eframe");
+
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title("filox")
@@ -18,9 +22,17 @@ fn main() -> eframe::Result<()> {
         ..Default::default()
     };
 
-    eframe::run_native(
+    let result = eframe::run_native(
         "filox",
         options,
         Box::new(|cc| Ok(Box::new(app::FerroApp::new(cc)))),
-    )
+    );
+
+    if let Err(ref e) = result {
+        log_error!("eframe exited with error: {e}");
+    } else {
+        log_info!("filox exited normally");
+    }
+
+    result
 }

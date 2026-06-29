@@ -112,13 +112,37 @@ pub fn spawn_worker() -> (Sender<FsMsg>, Receiver<ScanResult>) {
     let (res_tx, res_rx) = crossbeam_channel::unbounded::<ScanResult>();
 
     std::thread::spawn(move || {
+        crate::log_info!("fs worker thread started");
         for msg in req_rx {
             match msg {
                 FsMsg::Request(path) => {
+                    crate::log_info!("scan request: {}", path.display());
                     let t = Instant::now();
-                    // panic を捕捉してスレッドを生かし続ける
-                    let entries = std::panic::catch_unwind(|| scan_dir(&path))
-                        .unwrap_or_default();
+                    let entries = match std::panic::catch_unwind(|| scan_dir(&path)) {
+                        Ok(e) => {
+                            crate::log_info!(
+                                "scan ok: {} entries in {}ms",
+                                e.len(),
+                                t.elapsed().as_millis()
+                            );
+                            e
+                        }
+                        Err(payload) => {
+                            let msg = if let Some(s) = payload.downcast_ref::<&str>() {
+                                s.to_string()
+                            } else if let Some(s) = payload.downcast_ref::<String>() {
+                                s.clone()
+                            } else {
+                                "unknown".to_owned()
+                            };
+                            crate::log_error!(
+                                "scan PANIC for {}: {}",
+                                path.display(),
+                                msg
+                            );
+                            Vec::new()
+                        }
+                    };
                     let elapsed_ms = t.elapsed().as_millis() as u64;
                     let free_bytes = free_space(&path);
                     let _ = res_tx.send(ScanResult {
@@ -130,6 +154,7 @@ pub fn spawn_worker() -> (Sender<FsMsg>, Receiver<ScanResult>) {
                 }
             }
         }
+        crate::log_info!("fs worker thread exiting");
     });
 
     (req_tx, res_rx)
