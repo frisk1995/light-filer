@@ -342,10 +342,12 @@ fn show_list(app: &mut FerroApp, ctx: &egui::Context, tok: &Tokens) {
                 Stroke::new(1.0, tok.border),
             );
 
-            // File rows (filter hidden if needed)
+            // File rows (filter hidden / search)
             let show_hidden = app.show_hidden;
+            let query = app.search_text.to_lowercase();
             let entries: Vec<_> = app.main_pane.entries.iter()
                 .filter(|e| show_hidden || !e.is_hidden)
+                .filter(|e| query.is_empty() || e.name.to_lowercase().contains(&query))
                 .cloned()
                 .collect();
             let selection = app.main_pane.selection.clone();

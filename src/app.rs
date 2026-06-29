@@ -128,6 +128,7 @@ impl FerroApp {
         self.main_pane.loading = true;
         self.main_pane.selection.clear();
         self.preview_idx = None;
+        self.search_text.clear();
         let _ = self.req_tx.send(FsMsg::Request(path));
     }
 
