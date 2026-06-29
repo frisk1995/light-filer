@@ -10,6 +10,14 @@ use crate::{
 const ROW_H: f32 = 30.0;
 const TREE_ROW_H: f32 = 26.0;
 
+const NEW_FILE_TEMPLATES: &[(&str, &str)] = &[
+    ("テキスト ドキュメント (.txt)",                    "新しいテキスト ドキュメント.txt"),
+    ("Microsoft Word 文書 (.docx)",                    "新しい Microsoft Word 文書.docx"),
+    ("Microsoft Excel ワークシート (.xlsx)",            "新しい Microsoft Excel ワークシート.xlsx"),
+    ("Microsoft PowerPoint プレゼンテーション (.pptx)", "新しい Microsoft PowerPoint プレゼンテーション.pptx"),
+    ("リッチ テキスト ドキュメント (.rtf)",              "新しいリッチ テキスト ドキュメント.rtf"),
+];
+
 pub fn show(app: &mut FerroApp, ctx: &egui::Context) {
     let tok = app.tokens.clone();
     show_sidebar(app, ctx, &tok);
@@ -353,11 +361,22 @@ fn show_list(app: &mut FerroApp, ctx: &egui::Context, tok: &Tokens) {
                 Sense::click(),
             );
             bg_resp.context_menu(|ui| {
-                ui.set_min_width(160.0);
-                if ui.button("新しいフォルダー").clicked() {
-                    app.pending_action = Some(ContextAction::NewFolder);
-                    ui.close_menu();
-                }
+                ui.set_min_width(180.0);
+                ui.menu_button("新規作成", |ui| {
+                    ui.set_min_width(260.0);
+                    if ui.button("フォルダー").clicked() {
+                        app.pending_action = Some(ContextAction::NewFolder);
+                        ui.close_menu();
+                    }
+                    ui.separator();
+                    for (label, filename) in NEW_FILE_TEMPLATES {
+                        if ui.button(*label).clicked() {
+                            app.pending_action = Some(ContextAction::NewFile(filename.to_string()));
+                            ui.close_menu();
+                        }
+                    }
+                });
+                ui.separator();
                 if ui.button("更新").clicked() {
                     app.pending_action = Some(ContextAction::Refresh);
                     ui.close_menu();

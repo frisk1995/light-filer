@@ -43,6 +43,7 @@ pub enum ContextAction {
     CopyPath(PathBuf),
     OpenTerminal(PathBuf),
     NewFolder,
+    NewFile(String),  // default filename with extension
     Delete(Vec<PathBuf>),
     Rename(PathBuf),
     AddQuickAccess(PathBuf),
@@ -196,9 +197,22 @@ impl FerroApp {
                 }
             }
             Some(ContextAction::NewFolder) => {
-                let new_dir = self.main_pane.path.join("新しいフォルダー");
-                let _ = std::fs::create_dir(&new_dir);
+                let base = "新しいフォルダー";
+                let target = unique_path(&self.main_pane.path, base, "");
+                let _ = std::fs::create_dir(&target);
                 self.refresh();
+                self.rename_state = Some((target.clone(), base.to_owned()));
+            }
+            Some(ContextAction::NewFile(filename)) => {
+                let (stem, ext) = split_stem_ext(&filename);
+                let target = unique_path(&self.main_pane.path, &stem, &ext);
+                let content: &[u8] = if ext == "rtf" { b"{\\rtf1}" } else { b"" };
+                let _ = std::fs::write(&target, content);
+                self.refresh();
+                let display_name = target.file_name()
+                    .map(|n| n.to_string_lossy().to_string())
+                    .unwrap_or(filename);
+                self.rename_state = Some((target, display_name));
             }
             Some(ContextAction::Delete(paths)) => {
                 for p in &paths {
@@ -513,4 +527,32 @@ impl eframe::App for FerroApp {
             ctx.request_repaint();
         }
     }
+}
+
+fn split_stem_ext(filename: &str) -> (String, String) {
+    match filename.rfind('.') {
+        Some(i) if i > 0 => (filename[..i].to_owned(), filename[i + 1..].to_owned()),
+        _ => (filename.to_owned(), String::new()),
+    }
+}
+
+fn unique_path(dir: &std::path::Path, stem: &str, ext: &str) -> PathBuf {
+    let make = |suffix: &str| -> PathBuf {
+        if ext.is_empty() {
+            dir.join(format!("{}{}", stem, suffix))
+        } else {
+            dir.join(format!("{}{}.{}", stem, suffix, ext))
+        }
+    };
+    let base = make("");
+    if !base.exists() {
+        return base;
+    }
+    for i in 2u32.. {
+        let candidate = make(&format!(" ({})", i));
+        if !candidate.exists() {
+            return candidate;
+        }
+    }
+    base
 }
