@@ -11,11 +11,7 @@ const ROW_H: f32 = 30.0;
 const TREE_ROW_H: f32 = 26.0;
 
 const NEW_FILE_TEMPLATES: &[(&str, &str)] = &[
-    ("テキスト ドキュメント (.txt)",                    "新しいテキスト ドキュメント.txt"),
-    ("Microsoft Word 文書 (.docx)",                    "新しい Microsoft Word 文書.docx"),
-    ("Microsoft Excel ワークシート (.xlsx)",            "新しい Microsoft Excel ワークシート.xlsx"),
-    ("Microsoft PowerPoint プレゼンテーション (.pptx)", "新しい Microsoft PowerPoint プレゼンテーション.pptx"),
-    ("リッチ テキスト ドキュメント (.rtf)",              "新しいリッチ テキスト ドキュメント.rtf"),
+    ("テキスト ドキュメント (.txt)", "新しいテキスト ドキュメント.txt"),
 ];
 
 pub fn show(app: &mut FerroApp, ctx: &egui::Context) {
