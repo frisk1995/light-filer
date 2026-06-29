@@ -332,8 +332,8 @@ fn show_grid(app: &mut FerroApp, ctx: &egui::Context, tok: &Tokens) {
                             );
 
                             // Name (11.5px, centered, ellipsis)
-                            let name = if entry.name.len() > 14 {
-                                format!("{}…", &entry.name[..12])
+                            let name = if entry.name.chars().count() > 14 {
+                                format!("{}…", entry.name.chars().take(12).collect::<String>())
                             } else {
                                 entry.name.clone()
                             };

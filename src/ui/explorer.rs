@@ -571,9 +571,9 @@ fn draw_row(
 }
 
 fn truncate_str(s: &str, _max_width: f32, _font_size: f32) -> String {
-    // Simple character truncation (egui measures in pixels but we approximate)
-    if s.len() > 40 {
-        format!("{}…", &s[..37])
+    let chars: Vec<char> = s.chars().collect();
+    if chars.len() > 28 {
+        format!("{}…", chars[..26].iter().collect::<String>())
     } else {
         s.to_owned()
     }
