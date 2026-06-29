@@ -27,6 +27,8 @@ pub const LIGHT_MODE: char = '\u{e518}';
 pub const DARK_MODE: char = '\u{e51c}';
 pub const VISIBILITY: char = '\u{e8f4}';
 pub const VISIBILITY_OFF: char = '\u{e8f5}';
+pub const CLOUD: char = '\u{e2bd}';
+pub const CLOUD_SYNC: char = '\u{eb5a}';
 
 pub fn icon(c: char) -> String {
     c.to_string()

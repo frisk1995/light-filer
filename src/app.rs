@@ -31,7 +31,7 @@ fn save_quick_access(qa: &[(String, PathBuf)]) {
 
 use crate::{
     fonts,
-    fs::{DriveInfo, FsMsg, ScanResult, list_drives, spawn_worker},
+    fs::{DriveInfo, FsMsg, ScanResult, list_drives, list_onedrive_paths, spawn_worker},
     icons,
     state::{PaneState, ViewMode},
     theme::{Accent, Theme, Tokens},
@@ -64,6 +64,7 @@ pub struct FerroApp {
     pub rename_state: Option<(PathBuf, String)>,
     pub show_hidden: bool,
     pub drives: Vec<DriveInfo>,
+    pub onedrive_paths: Vec<(String, PathBuf)>,
 
     // FS worker
     req_tx: Sender<FsMsg>,
@@ -110,6 +111,7 @@ impl FerroApp {
             rename_state: None,
             show_hidden: false,
             drives: list_drives(),
+            onedrive_paths: list_onedrive_paths(),
             req_tx,
             res_rx,
         }

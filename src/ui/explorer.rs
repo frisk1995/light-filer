@@ -69,6 +69,36 @@ fn show_sidebar(app: &mut FerroApp, ctx: &egui::Context, tok: &Tokens) {
                 });
             }
 
+            // OneDrive（検出された場合のみ表示）
+            let onedrive = app.onedrive_paths.clone();
+            if !onedrive.is_empty() {
+                ui.add_space(8.0);
+                crate::ui::section_label(ui, tok, "CLOUD");
+                for (name, path) in &onedrive {
+                    let is_active = app.main_pane.path.starts_with(path);
+                    let (rect, resp) = ui.allocate_exact_size(
+                        Vec2::new(ui.available_width(), 28.0), Sense::click());
+                    let paint = ui.painter();
+                    if is_active {
+                        paint.rect_filled(rect, Rounding::same(6.0), tok.accent_soft);
+                        let bar = egui::Rect::from_min_size(rect.min, Vec2::new(2.0, rect.height() - 8.0))
+                            .translate(Vec2::new(0.0, 4.0));
+                        paint.rect_filled(bar, Rounding::same(2.0), tok.accent);
+                    } else if resp.hovered() {
+                        paint.rect_filled(rect, Rounding::same(6.0), tok.hover);
+                    }
+                    let icon_color = if is_active { tok.accent } else { Color32::from_rgb(0x00, 0x7a, 0xff) };
+                    paint.text(egui::pos2(rect.min.x + 14.0, rect.center().y),
+                        egui::Align2::CENTER_CENTER, icons::CLOUD.to_string(),
+                        FontId::proportional(16.0), icon_color);
+                    paint.text(egui::pos2(rect.min.x + 26.0, rect.center().y),
+                        egui::Align2::LEFT_CENTER, name.as_str(),
+                        FontId::proportional(13.0),
+                        if is_active { tok.text } else { tok.dim });
+                    if resp.clicked() { app.navigate_to(path.clone()); }
+                }
+            }
+
             ui.add_space(8.0);
             crate::ui::section_label(ui, tok, "THIS PC");
             let drives = app.drives.clone();
@@ -497,6 +527,17 @@ fn draw_row(
         FontId::proportional(13.0),
         text_color,
     );
+    // オンライン専用ファイルはクラウドバッジを表示
+    if entry.is_cloud_only {
+        let badge_x = x + (name.chars().count().min(37)) as f32 * 7.8 + 4.0;
+        ui.painter().text(
+            egui::pos2(badge_x.min(rect.min.x + col_widths[0] - 20.0), y),
+            egui::Align2::LEFT_CENTER,
+            icons::CLOUD_SYNC.to_string(),
+            FontId::proportional(13.0),
+            Color32::from_rgb(0x00, 0x7a, 0xff),
+        );
+    }
     x = rect.min.x + col_widths[0];
 
     // Size (right-aligned)

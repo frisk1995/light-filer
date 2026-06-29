@@ -18,6 +18,7 @@ pub struct Entry {
     pub size: Option<u64>,
     pub modified: Option<DateTime<Local>>,
     pub is_hidden: bool,
+    pub is_cloud_only: bool,
 }
 
 impl Entry {

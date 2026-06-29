@@ -11,6 +11,32 @@ pub struct DriveInfo {
     pub total_bytes: u64,
 }
 
+/// OneDrive フォルダを環境変数から検出して返す
+pub fn list_onedrive_paths() -> Vec<(String, std::path::PathBuf)> {
+    let mut paths = Vec::new();
+    // 個人用 OneDrive
+    if let Ok(p) = std::env::var("OneDrive") {
+        let path = std::path::PathBuf::from(&p);
+        if path.exists() {
+            let name = path.file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_else(|| "OneDrive".to_owned());
+            paths.push((name, path));
+        }
+    }
+    // ビジネス用 OneDrive（個人と別パスの場合のみ追加）
+    if let Ok(p) = std::env::var("OneDriveCommercial") {
+        let path = std::path::PathBuf::from(&p);
+        if path.exists() && !paths.iter().any(|(_, existing)| existing == &path) {
+            let name = path.file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_else(|| "OneDrive for Business".to_owned());
+            paths.push((name, path));
+        }
+    }
+    paths
+}
+
 pub fn list_drives() -> Vec<DriveInfo> {
     #[cfg(windows)]
     {
@@ -107,6 +133,24 @@ pub fn spawn_worker() -> (Sender<FsMsg>, Receiver<ScanResult>) {
     (req_tx, res_rx)
 }
 
+// OneDrive オンライン専用ファイルの Windows ファイル属性フラグ
+#[cfg(windows)]
+const FILE_ATTRIBUTE_RECALL_ON_OPEN: u32 = 0x0004_0000;
+#[cfg(windows)]
+const FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS: u32 = 0x0040_0000;
+
+fn is_cloud_only_file(meta: &std::fs::Metadata) -> bool {
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        let attrs = meta.file_attributes();
+        (attrs & FILE_ATTRIBUTE_RECALL_ON_OPEN) != 0
+            || (attrs & FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS) != 0
+    }
+    #[cfg(not(windows))]
+    { let _ = meta; false }
+}
+
 fn scan_dir(path: &Path) -> Vec<Entry> {
     let Ok(rd) = std::fs::read_dir(path) else {
         return Vec::new();
@@ -126,11 +170,9 @@ fn scan_dir(path: &Path) -> Vec<Entry> {
                 EntryKind::File
             };
             let size = if meta.is_file() { Some(meta.len()) } else { None };
-            let modified = meta
-                .modified()
-                .ok()
-                .map(|st| st.into());
+            let modified = meta.modified().ok().map(|st| st.into());
             let is_hidden = name.starts_with('.');
+            let is_cloud_only = is_cloud_only_file(&meta);
             Some(Entry {
                 name,
                 path: entry_path,
@@ -138,6 +180,7 @@ fn scan_dir(path: &Path) -> Vec<Entry> {
                 size,
                 modified,
                 is_hidden,
+                is_cloud_only,
             })
         })
         .collect();
