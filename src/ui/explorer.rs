@@ -520,18 +520,16 @@ fn draw_row(
     let text_color = if is_selected { tok.text } else if entry.is_hidden { tok.dim } else { tok.text };
     let name_width = col_widths[0] - 30.0;
     let name = truncate_str(&entry.name, name_width, 13.0);
-    ui.painter().text(
-        egui::pos2(x, y),
-        egui::Align2::LEFT_CENTER,
-        &name,
-        FontId::proportional(13.0),
-        text_color,
-    );
+    let name_galley = ui.fonts(|f| {
+        f.layout_no_wrap(name.clone(), FontId::proportional(13.0), text_color)
+    });
+    let name_px_width = name_galley.rect.width();
+    ui.painter().galley(egui::pos2(x, y - name_galley.rect.height() * 0.5), name_galley, text_color);
     // オンライン専用ファイルはクラウドバッジを表示
     if entry.is_cloud_only {
-        let badge_x = x + (name.chars().count().min(37)) as f32 * 7.8 + 4.0;
+        let badge_x = (x + name_px_width + 4.0).min(rect.min.x + col_widths[0] - 20.0);
         ui.painter().text(
-            egui::pos2(badge_x.min(rect.min.x + col_widths[0] - 20.0), y),
+            egui::pos2(badge_x, y),
             egui::Align2::LEFT_CENTER,
             icons::CLOUD_SYNC.to_string(),
             FontId::proportional(13.0),
