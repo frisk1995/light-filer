@@ -64,7 +64,7 @@ pub struct Saved {
 
 impl Default for Saved {
     fn default() -> Self {
-        Self { theme_dark: true, show_hidden: false, font: FontChoice::Meiryo }
+        Self { theme_dark: true, show_hidden: false, font: FontChoice::NotoSansJp }
     }
 }
 
