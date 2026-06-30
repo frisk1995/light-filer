@@ -113,7 +113,12 @@ fn show_sidebar(app: &mut FerroApp, ctx: &egui::Context, tok: &Tokens) {
 
             ui.add_space(8.0);
             crate::ui::section_label(ui, tok, "FOLDERS");
-            show_folder_tree(ui, tok, app);
+            ScrollArea::vertical()
+                .id_source("folder_tree_scroll")
+                .auto_shrink([false, false])
+                .show(ui, |ui| {
+                    show_folder_tree(ui, tok, app);
+                });
         });
 }
 
