@@ -1,4 +1,4 @@
-use egui::{Color32, FontId, Rounding, ScrollArea, Sense, Stroke, Vec2};
+use egui::{Color32, FontId, RichText, Rounding, ScrollArea, Sense, Stroke, Vec2};
 use crate::{
     app::{ContextAction, FerroApp},
     entry::EntryKind,
@@ -17,6 +17,7 @@ pub fn show(app: &mut FerroApp, ctx: &egui::Context) {
     let tok = app.tokens.clone();
     show_sidebar(app, ctx, &tok);
     show_list(app, ctx, &tok);
+    show_drag_indicator(ctx, &tok);
 }
 
 fn show_sidebar(app: &mut FerroApp, ctx: &egui::Context, tok: &Tokens) {
@@ -310,6 +311,16 @@ fn show_folder_tree(ui: &mut egui::Ui, tok: &Tokens, app: &mut FerroApp) {
                 ui.close_menu();
             }
         });
+
+        // ドロップターゲット（サイドバーのフォルダーにファイルを移動）
+        if egui::DragAndDrop::has_any_payload(ui.ctx()) && resp.hovered() {
+            paint.rect_stroke(rect, Rounding::same(6.0), Stroke::new(2.0, tok.accent));
+        }
+        if let Some(payload) = resp.dnd_release_payload::<Vec<std::path::PathBuf>>() {
+            move_files_into(&payload, path);
+            app.pending_action = Some(ContextAction::Refresh);
+            app.main_pane.selection.clear();
+        }
     }
 }
 
@@ -407,7 +418,7 @@ fn show_list(app: &mut FerroApp, ctx: &egui::Context, tok: &Tokens) {
                             let is_selected = selection.contains(&i);
                             let (rect, resp) = ui.allocate_exact_size(
                                 Vec2::new(content_w, ROW_H),
-                                Sense::click(),
+                                Sense::click_and_drag(),
                             );
 
                             // Row background
@@ -534,6 +545,38 @@ fn show_list(app: &mut FerroApp, ctx: &egui::Context, tok: &Tokens) {
                                     ui.close_menu();
                                 }
                             });
+
+                            // ── ドラッグソース ──────────────────────────────
+                            if resp.drag_started() && !is_selected {
+                                // ドラッグ開始時に未選択なら単独選択に切り替える
+                                app.main_pane.selection.clear();
+                                app.main_pane.selection.insert(i);
+                            }
+                            if resp.dragged() {
+                                let drag_files: Vec<std::path::PathBuf> =
+                                    if !app.main_pane.selection.is_empty() {
+                                        app.main_pane.selection.iter()
+                                            .filter_map(|&j| entries.get(j).map(|e| e.path.clone()))
+                                            .collect()
+                                    } else {
+                                        vec![entry.path.clone()]
+                                    };
+                                resp.dnd_set_drag_payload(drag_files);
+                            }
+
+                            // ── ドロップターゲット（フォルダーのみ）──────────
+                            if entry.kind == EntryKind::Dir {
+                                if egui::DragAndDrop::has_any_payload(ui.ctx()) && resp.hovered() {
+                                    ui.painter().rect_stroke(
+                                        rect, Rounding::same(3.0), Stroke::new(2.0, tok.accent),
+                                    );
+                                }
+                                if let Some(payload) = resp.dnd_release_payload::<Vec<std::path::PathBuf>>() {
+                                    move_files_into(&payload, &entry.path);
+                                    app.main_pane.selection.clear();
+                                    app.pending_action = Some(ContextAction::Refresh);
+                                }
+                            }
                         }
                     });
                 });
@@ -681,4 +724,51 @@ fn truncate_to_px(ui: &egui::Ui, s: &str, max_px: f32) -> String {
     }
     if lo == 0 { return "…".to_owned(); }
     chars[..lo].iter().collect::<String>() + "…"
+}
+
+/// カーソル近くにドラッグ中のファイル名を表示するフローティングラベル
+fn show_drag_indicator(ctx: &egui::Context, tok: &Tokens) {
+    if !egui::DragAndDrop::has_any_payload(ctx) { return; }
+    let Some(pos) = ctx.pointer_hover_pos() else { return };
+    let Some(payload) = egui::DragAndDrop::payload::<Vec<std::path::PathBuf>>(ctx) else { return };
+
+    let label = if payload.len() == 1 {
+        payload[0].file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_default()
+    } else {
+        format!("{} 個のアイテム", payload.len())
+    };
+
+    egui::Area::new(egui::Id::new("dnd_cursor"))
+        .fixed_pos(pos + Vec2::new(14.0, 10.0))
+        .order(egui::Order::Tooltip)
+        .interactable(false)
+        .show(ctx, |ui| {
+            egui::Frame::none()
+                .fill(tok.elev)
+                .stroke(Stroke::new(1.0, tok.accent))
+                .rounding(Rounding::same(6.0))
+                .inner_margin(egui::Margin::symmetric(8.0, 4.0))
+                .show(ui, |ui| {
+                    ui.label(
+                        RichText::new(&label)
+                            .font(FontId::proportional(12.0))
+                            .color(tok.text),
+                    );
+                });
+        });
+}
+
+/// ファイル群を指定フォルダーへ移動する
+fn move_files_into(files: &[std::path::PathBuf], dest: &std::path::Path) {
+    for src in files {
+        if src.parent().map(|p| p == dest).unwrap_or(false) { continue; }
+        if let Some(name) = src.file_name() {
+            let dst = dest.join(name);
+            if dst != *src {
+                let _ = std::fs::rename(src, &dst);
+            }
+        }
+    }
 }
