@@ -571,7 +571,7 @@ impl eframe::App for FerroApp {
                     );
                     ui.add_space(4.0);
                     ui.label(
-                        egui::RichText::new("0.4.6")
+                        egui::RichText::new("0.4.7")
                             .font(FontId::monospace(10.0))
                             .color(tok.faint),
                     );
