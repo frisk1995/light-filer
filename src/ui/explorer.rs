@@ -22,8 +22,9 @@ pub fn show(app: &mut FerroApp, ctx: &egui::Context) {
 
 fn show_sidebar(app: &mut FerroApp, ctx: &egui::Context, tok: &Tokens) {
     egui::SidePanel::left("explorer_sidebar")
-        .resizable(false)
-        .exact_width(222.0)
+        .resizable(true)
+        .default_width(222.0)
+        .width_range(140.0..=480.0)
         .frame(
             egui::Frame::none()
                 .fill(tok.bg)
