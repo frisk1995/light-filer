@@ -73,6 +73,7 @@ pub struct FerroApp {
     pub settings_open: bool,
     pub font_choice: FontChoice,
     pub name_col_extra: f32,
+    pub file_open_status: Option<(String, std::time::Instant)>,
 
     req_tx: Sender<FsMsg>,
     res_rx: Receiver<ScanResult>,
@@ -127,6 +128,7 @@ impl FerroApp {
             settings_open: false,
             font_choice: saved.font,
             name_col_extra: 0.0,
+            file_open_status: None,
             req_tx,
             res_rx,
         }
@@ -192,7 +194,13 @@ impl FerroApp {
         let action = self.pending_action.take();
         match action {
             None => {}
-            Some(ContextAction::Open(path)) => { let _ = open::that(&path); }
+            Some(ContextAction::Open(path)) => {
+                let name = path.file_name()
+                    .map(|n| n.to_string_lossy().to_string())
+                    .unwrap_or_else(|| path.to_string_lossy().to_string());
+                let _ = open::that(&path);
+                self.file_open_status = Some((name, std::time::Instant::now()));
+            }
             Some(ContextAction::CopyPath(path)) => {
                 ctx.output_mut(|o| o.copied_text = path.to_string_lossy().to_string());
             }
@@ -507,6 +515,15 @@ impl eframe::App for FerroApp {
         self.show_settings_panel(ctx);
         self.poll_results();
 
+        // ファイルオープン中スピナー: 5秒後に自動消去、アニメーションのため再描画を要求
+        if let Some((_, t)) = &self.file_open_status {
+            if t.elapsed().as_secs_f32() > 5.0 {
+                self.file_open_status = None;
+            } else {
+                ctx.request_repaint_after(std::time::Duration::from_millis(100));
+            }
+        }
+
         let tok = self.tokens.clone();
 
         let mut visuals = if self.theme == Theme::Dark {
@@ -721,6 +738,19 @@ impl eframe::App for FerroApp {
                                 .font(FontId::monospace(11.0))
                                 .color(tok2.dim),
                         );
+
+                        // ファイルオープン中スピナー
+                        if let Some((name, _)) = &self.file_open_status {
+                            ui.add_space(12.0);
+                            ui.add(egui::Spinner::new().size(13.0).color(tok2.accent));
+                            ui.add_space(4.0);
+                            ui.label(
+                                egui::RichText::new(format!("「{}」を開いています...", name))
+                                    .font(FontId::monospace(11.0))
+                                    .color(tok2.dim),
+                            );
+                        }
+
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             let speed = if let Some(ms) = self.main_pane.scan_time_ms {
                                 let free = self.main_pane.free_bytes

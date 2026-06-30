@@ -489,7 +489,7 @@ fn show_list(app: &mut FerroApp, ctx: &egui::Context, tok: &Tokens) {
                                 if entry.kind == EntryKind::Dir {
                                     app.navigate_to(path);
                                 } else {
-                                    let _ = open::that(&path);
+                                    app.pending_action = Some(ContextAction::Open(path));
                                 }
                             }
 
