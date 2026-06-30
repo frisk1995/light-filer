@@ -263,7 +263,7 @@ fn show_folder_tree(ui: &mut egui::Ui, tok: &Tokens, app: &mut FerroApp) {
             .map(|n| n.to_string_lossy().to_string())
             .unwrap_or_else(|| path.to_string_lossy().to_string());
         let is_current = *path == current;
-        let indent = depth as f32 * 12.0;
+        let indent = depth as f32 * 8.0;
         let (rect, resp) = ui.allocate_exact_size(
             Vec2::new(ui.available_width(), TREE_ROW_H),
             Sense::click(),
