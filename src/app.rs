@@ -72,6 +72,7 @@ pub struct FerroApp {
     pub onedrive_paths: Vec<(String, PathBuf)>,
     pub settings_open: bool,
     pub font_choice: FontChoice,
+    pub name_col_extra: f32,
 
     req_tx: Sender<FsMsg>,
     res_rx: Receiver<ScanResult>,
@@ -125,6 +126,7 @@ impl FerroApp {
             onedrive_paths: list_onedrive_paths(),
             settings_open: false,
             font_choice: saved.font,
+            name_col_extra: 0.0,
             req_tx,
             res_rx,
         }

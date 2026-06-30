@@ -1,10 +1,9 @@
-use egui::{Color32, FontId, RichText, Rounding, ScrollArea, Sense, Stroke, Vec2};
+use egui::{Color32, FontId, Rounding, ScrollArea, Sense, Stroke, Vec2};
 use crate::{
     app::{ContextAction, FerroApp},
     entry::EntryKind,
     icons,
     theme::Tokens,
-    ui::col_header,
 };
 
 const ROW_H: f32 = 30.0;
@@ -320,29 +319,11 @@ fn show_list(app: &mut FerroApp, ctx: &egui::Context, tok: &Tokens) {
     egui::CentralPanel::default()
         .frame(egui::Frame::none().fill(tok.list))
         .show(ctx, |ui| {
-            // Column header
-            let header_h = 32.0;
             let avail_w = ui.available_width();
-            let col_widths = col_widths(avail_w);
+            let col_w = col_widths(avail_w, app.name_col_extra);
+            let content_w = col_w.iter().sum::<f32>().max(avail_w);
 
-            let header_rect = ui.allocate_exact_size(
-                Vec2::new(avail_w, header_h),
-                Sense::hover(),
-            ).0;
-            ui.painter()
-                .rect_filled(header_rect, Rounding::ZERO, tok.bg);
-            draw_header(ui, tok, header_rect, &col_widths);
-
-            // Separator line
-            ui.painter().line_segment(
-                [
-                    header_rect.left_bottom(),
-                    header_rect.right_bottom(),
-                ],
-                Stroke::new(1.0, tok.border),
-            );
-
-            // File rows (filter hidden / search)
+            // Filter entries before entering closures
             let show_hidden = app.show_hidden;
             let query = app.search_text.to_lowercase();
             let entries: Vec<_> = app.main_pane.entries.iter()
@@ -364,212 +345,246 @@ fn show_list(app: &mut FerroApp, ctx: &egui::Context, tok: &Tokens) {
                 }
             }
 
-            // Background right-click (empty area)
-            let bg_resp = ui.interact(
-                ui.available_rect_before_wrap(),
-                egui::Id::new("list_bg"),
-                Sense::click(),
-            );
-            bg_resp.context_menu(|ui| {
-                ui.set_min_width(180.0);
-                ui.menu_button("新規作成", |ui| {
-                    ui.set_min_width(260.0);
-                    if ui.button("フォルダー").clicked() {
-                        app.pending_action = Some(ContextAction::NewFolder);
-                        ui.close_menu();
-                    }
-                    ui.separator();
-                    for (label, filename) in NEW_FILE_TEMPLATES {
-                        if ui.button(*label).clicked() {
-                            app.pending_action = Some(ContextAction::NewFile(filename.to_string()));
-                            ui.close_menu();
-                        }
-                    }
-                });
-                ui.separator();
-                if ui.button("更新").clicked() {
-                    app.pending_action = Some(ContextAction::Refresh);
-                    ui.close_menu();
-                }
-            });
+            // Outer horizontal scroll — visible only when name column is wider than panel
+            ScrollArea::horizontal()
+                .auto_shrink([false, false])
+                .show(ui, |ui| {
+                    ui.set_min_width(content_w);
 
-            ScrollArea::vertical().show(ui, |ui| {
-                ui.set_min_width(avail_w);
-                for (i, entry) in entries.iter().enumerate() {
-                    let is_selected = selection.contains(&i);
-                    let row_rect = ui.allocate_exact_size(
-                        Vec2::new(avail_w, ROW_H),
+                    // Header
+                    let header_rect = ui.allocate_exact_size(
+                        Vec2::new(content_w, 32.0),
+                        Sense::hover(),
+                    ).0;
+                    ui.painter().rect_filled(header_rect, Rounding::ZERO, tok.bg);
+                    let name_delta = draw_header_interactive(ui, tok, header_rect, &col_w);
+                    if name_delta != 0.0 {
+                        let base_flex = (avail_w - 384.0).max(120.0);
+                        app.name_col_extra = (app.name_col_extra + name_delta)
+                            .max(80.0 - base_flex)
+                            .min(2000.0);
+                    }
+
+                    // Separator
+                    ui.painter().line_segment(
+                        [header_rect.left_bottom(), header_rect.right_bottom()],
+                        Stroke::new(1.0, tok.border),
+                    );
+
+                    // Background right-click (empty area)
+                    let bg_resp = ui.interact(
+                        ui.available_rect_before_wrap(),
+                        egui::Id::new("list_bg"),
                         Sense::click(),
                     );
-                    let (rect, resp) = row_rect;
-
-                    // Row background
-                    if is_selected {
-                        ui.painter()
-                            .rect_filled(rect, Rounding::ZERO, tok.accent_soft);
-                        let bar = egui::Rect::from_min_size(
-                            rect.min + Vec2::new(0.0, 4.0),
-                            Vec2::new(2.0, rect.height() - 8.0),
-                        );
-                        ui.painter()
-                            .rect_filled(bar, Rounding::same(2.0), tok.accent);
-                    } else if resp.hovered() {
-                        ui.painter()
-                            .rect_filled(rect, Rounding::ZERO, tok.hover);
-                    }
-
-                    // リネーム中の行はインライン入力欄を表示
-                    let is_renaming = app.rename_state.as_ref()
-                        .map(|(p, _)| p == &entry.path)
-                        .unwrap_or(false);
-
-                    if is_renaming {
-                        // アイコンだけ描画
-                        let icon_x = rect.min.x + 8.0 + 9.0;
-                        let y = rect.center().y;
-                        ui.painter().text(
-                            egui::pos2(icon_x, y),
-                            egui::Align2::CENTER_CENTER,
-                            entry.icon_char().to_string(),
-                            FontId::proportional(18.0),
-                            entry.icon_color(tok.accent),
-                        );
-
-                        // TextEdit をアイコン右に配置
-                        let te_rect = egui::Rect::from_min_size(
-                            egui::pos2(rect.min.x + 30.0, rect.min.y + 4.0),
-                            Vec2::new(col_widths[0] - 36.0, ROW_H - 8.0),
-                        );
-                        let (commit, cancel) = {
-                            let (_, ref mut name) = *app.rename_state.as_mut().unwrap();
-                            let te_resp = ui.put(
-                                te_rect,
-                                egui::TextEdit::singleline(name).font(FontId::proportional(13.0)),
-                            );
-                            te_resp.request_focus();
-                            let enter  = ui.input(|inp| inp.key_pressed(egui::Key::Enter));
-                            let escape = ui.input(|inp| inp.key_pressed(egui::Key::Escape));
-                            (enter, escape || (te_resp.lost_focus() && !enter))
-                        };
-                        if commit {
-                            if let Some((old_path, new_name)) = app.rename_state.take() {
-                                if let Some(parent) = old_path.parent() {
-                                    let new_path = parent.join(&new_name);
-                                    if new_path != old_path && !new_name.is_empty() {
-                                        let _ = std::fs::rename(&old_path, &new_path);
-                                    }
+                    bg_resp.context_menu(|ui| {
+                        ui.set_min_width(180.0);
+                        ui.menu_button("新規作成", |ui| {
+                            ui.set_min_width(260.0);
+                            if ui.button("フォルダー").clicked() {
+                                app.pending_action = Some(ContextAction::NewFolder);
+                                ui.close_menu();
+                            }
+                            ui.separator();
+                            for (label, filename) in NEW_FILE_TEMPLATES {
+                                if ui.button(*label).clicked() {
+                                    app.pending_action = Some(ContextAction::NewFile(filename.to_string()));
+                                    ui.close_menu();
                                 }
                             }
-                            app.refresh();
-                        } else if cancel {
-                            // 新規作成によるリネームはキャンセル時にファイルを削除
-                            app.rename_state = None;
-                        }
-                        continue; // クリック・コンテキストメニュー処理をスキップ
-                    }
-
-                    draw_row(ui, tok, &rect, entry, is_selected, &col_widths);
-
-                    // Handle click
-                    if resp.clicked() {
-                        let multi = ui.input(|i| i.modifiers.ctrl || i.modifiers.shift);
-                        if multi {
-                            if is_selected {
-                                app.main_pane.selection.remove(&i);
-                            } else {
-                                app.main_pane.selection.insert(i);
-                            }
-                        } else {
-                            app.main_pane.selection.clear();
-                            app.main_pane.selection.insert(i);
-                        }
-                    }
-                    if resp.double_clicked() {
-                        let path = entry.path.clone();
-                        if entry.kind == EntryKind::Dir {
-                            app.navigate_to(path);
-                        } else {
-                            let _ = open::that(&path);
-                        }
-                    }
-
-                    // Context menu
-                    let entry_path = entry.path.clone();
-                    let is_dir = entry.kind == EntryKind::Dir;
-                    let sel_paths: Vec<std::path::PathBuf> = if is_selected && app.main_pane.selection.len() > 1 {
-                        app.main_pane.selection.iter()
-                            .filter_map(|&j| entries.get(j).map(|e| e.path.clone()))
-                            .collect()
-                    } else {
-                        vec![entry_path.clone()]
-                    };
-                    resp.context_menu(|ui| {
-                        ui.set_min_width(180.0);
-                        if ui.button("開く").clicked() {
-                            app.pending_action = Some(ContextAction::Open(entry_path.clone()));
-                            ui.close_menu();
-                        }
+                        });
                         ui.separator();
-                        if ui.button("パスをコピー").clicked() {
-                            app.pending_action = Some(ContextAction::CopyPath(entry_path.clone()));
-                            ui.close_menu();
-                        }
-                        if is_dir {
-                            if ui.button("ターミナルで開く").clicked() {
-                                app.pending_action = Some(ContextAction::OpenTerminal(entry_path.clone()));
-                                ui.close_menu();
-                            }
-                            if ui.button("クイックアクセスに追加").clicked() {
-                                app.pending_action = Some(ContextAction::AddQuickAccess(entry_path.clone()));
-                                ui.close_menu();
-                            }
-                        }
-                        ui.separator();
-                        if ui.button("名前の変更").clicked() {
-                            app.pending_action = Some(ContextAction::Rename(entry_path.clone()));
-                            ui.close_menu();
-                        }
-                        if ui.button(egui::RichText::new("削除").color(egui::Color32::from_rgb(0xc8, 0x37, 0x2c))).clicked() {
-                            app.pending_action = Some(ContextAction::Delete(sel_paths.clone()));
+                        if ui.button("更新").clicked() {
+                            app.pending_action = Some(ContextAction::Refresh);
                             ui.close_menu();
                         }
                     });
-                }
-            });
+
+                    // Inner vertical scroll for file rows
+                    ScrollArea::vertical().show(ui, |ui| {
+                        ui.set_min_width(content_w);
+                        for (i, entry) in entries.iter().enumerate() {
+                            let is_selected = selection.contains(&i);
+                            let (rect, resp) = ui.allocate_exact_size(
+                                Vec2::new(content_w, ROW_H),
+                                Sense::click(),
+                            );
+
+                            // Row background
+                            if is_selected {
+                                ui.painter().rect_filled(rect, Rounding::ZERO, tok.accent_soft);
+                                let bar = egui::Rect::from_min_size(
+                                    rect.min + Vec2::new(0.0, 4.0),
+                                    Vec2::new(2.0, rect.height() - 8.0),
+                                );
+                                ui.painter().rect_filled(bar, Rounding::same(2.0), tok.accent);
+                            } else if resp.hovered() {
+                                ui.painter().rect_filled(rect, Rounding::ZERO, tok.hover);
+                            }
+
+                            // リネーム中の行はインライン入力欄を表示
+                            let is_renaming = app.rename_state.as_ref()
+                                .map(|(p, _)| p == &entry.path)
+                                .unwrap_or(false);
+
+                            if is_renaming {
+                                let icon_x = rect.min.x + 8.0 + 9.0;
+                                let y = rect.center().y;
+                                ui.painter().text(
+                                    egui::pos2(icon_x, y),
+                                    egui::Align2::CENTER_CENTER,
+                                    entry.icon_char().to_string(),
+                                    FontId::proportional(18.0),
+                                    entry.icon_color(tok.accent),
+                                );
+                                let te_rect = egui::Rect::from_min_size(
+                                    egui::pos2(rect.min.x + 30.0, rect.min.y + 4.0),
+                                    Vec2::new(col_w[0] - 36.0, ROW_H - 8.0),
+                                );
+                                let (commit, cancel) = {
+                                    let (_, ref mut name) = *app.rename_state.as_mut().unwrap();
+                                    let te_resp = ui.put(
+                                        te_rect,
+                                        egui::TextEdit::singleline(name).font(FontId::proportional(13.0)),
+                                    );
+                                    te_resp.request_focus();
+                                    let enter  = ui.input(|inp| inp.key_pressed(egui::Key::Enter));
+                                    let escape = ui.input(|inp| inp.key_pressed(egui::Key::Escape));
+                                    (enter, escape || (te_resp.lost_focus() && !enter))
+                                };
+                                if commit {
+                                    if let Some((old_path, new_name)) = app.rename_state.take() {
+                                        if let Some(parent) = old_path.parent() {
+                                            let new_path = parent.join(&new_name);
+                                            if new_path != old_path && !new_name.is_empty() {
+                                                let _ = std::fs::rename(&old_path, &new_path);
+                                            }
+                                        }
+                                    }
+                                    app.refresh();
+                                } else if cancel {
+                                    app.rename_state = None;
+                                }
+                                continue;
+                            }
+
+                            draw_row(ui, tok, &rect, entry, is_selected, &col_w);
+
+                            // Click
+                            if resp.clicked() {
+                                let multi = ui.input(|i| i.modifiers.ctrl || i.modifiers.shift);
+                                if multi {
+                                    if is_selected {
+                                        app.main_pane.selection.remove(&i);
+                                    } else {
+                                        app.main_pane.selection.insert(i);
+                                    }
+                                } else {
+                                    app.main_pane.selection.clear();
+                                    app.main_pane.selection.insert(i);
+                                }
+                            }
+                            if resp.double_clicked() {
+                                let path = entry.path.clone();
+                                if entry.kind == EntryKind::Dir {
+                                    app.navigate_to(path);
+                                } else {
+                                    let _ = open::that(&path);
+                                }
+                            }
+
+                            // Context menu
+                            let entry_path = entry.path.clone();
+                            let is_dir = entry.kind == EntryKind::Dir;
+                            let sel_paths: Vec<std::path::PathBuf> = if is_selected && app.main_pane.selection.len() > 1 {
+                                app.main_pane.selection.iter()
+                                    .filter_map(|&j| entries.get(j).map(|e| e.path.clone()))
+                                    .collect()
+                            } else {
+                                vec![entry_path.clone()]
+                            };
+                            resp.context_menu(|ui| {
+                                ui.set_min_width(180.0);
+                                if ui.button("開く").clicked() {
+                                    app.pending_action = Some(ContextAction::Open(entry_path.clone()));
+                                    ui.close_menu();
+                                }
+                                ui.separator();
+                                if ui.button("パスをコピー").clicked() {
+                                    app.pending_action = Some(ContextAction::CopyPath(entry_path.clone()));
+                                    ui.close_menu();
+                                }
+                                if is_dir {
+                                    if ui.button("ターミナルで開く").clicked() {
+                                        app.pending_action = Some(ContextAction::OpenTerminal(entry_path.clone()));
+                                        ui.close_menu();
+                                    }
+                                    if ui.button("クイックアクセスに追加").clicked() {
+                                        app.pending_action = Some(ContextAction::AddQuickAccess(entry_path.clone()));
+                                        ui.close_menu();
+                                    }
+                                }
+                                ui.separator();
+                                if ui.button("名前の変更").clicked() {
+                                    app.pending_action = Some(ContextAction::Rename(entry_path.clone()));
+                                    ui.close_menu();
+                                }
+                                if ui.button(egui::RichText::new("削除").color(egui::Color32::from_rgb(0xc8, 0x37, 0x2c))).clicked() {
+                                    app.pending_action = Some(ContextAction::Delete(sel_paths.clone()));
+                                    ui.close_menu();
+                                }
+                            });
+                        }
+                    });
+                });
         });
 }
 
-fn col_widths(avail_w: f32) -> [f32; 4] {
+fn col_widths(avail_w: f32, name_extra: f32) -> [f32; 4] {
     let fixed = 96.0 + 136.0 + 152.0;
-    let flex = (avail_w - fixed).max(120.0);
+    let base_flex = (avail_w - fixed).max(120.0);
+    let flex = (base_flex + name_extra).max(80.0);
     [flex, 96.0, 136.0, 152.0]
 }
 
-fn draw_header(
+/// Draws column headers and a drag handle at the Name|Size boundary.
+/// Returns the horizontal drag delta for resizing the Name column.
+fn draw_header_interactive(
     ui: &mut egui::Ui,
     tok: &Tokens,
     header_rect: egui::Rect,
     col_widths: &[f32; 4],
-) {
+) -> f32 {
     let y = header_rect.center().y;
     let mut x = header_rect.min.x + 8.0;
     let headers = ["Name", "Size", "Type", "Modified"];
     for (i, &h) in headers.iter().enumerate() {
-        let align = if i == 1 {
-            egui::Align2::RIGHT_CENTER
-        } else {
-            egui::Align2::LEFT_CENTER
-        };
+        let align = if i == 1 { egui::Align2::RIGHT_CENTER } else { egui::Align2::LEFT_CENTER };
         let tx = if i == 1 { x + col_widths[i] - 8.0 } else { x };
-        ui.painter().text(
-            egui::pos2(tx, y),
-            align,
-            h,
-            FontId::proportional(10.5),
-            tok.faint,
-        );
+        ui.painter().text(egui::pos2(tx, y), align, h, FontId::proportional(10.5), tok.faint);
         x += col_widths[i];
     }
+
+    // Drag handle at Name|Size boundary
+    let handle_x = header_rect.min.x + 8.0 + col_widths[0];
+    let handle_rect = egui::Rect::from_center_size(
+        egui::pos2(handle_x, header_rect.center().y),
+        Vec2::new(8.0, header_rect.height()),
+    );
+    let handle_resp = ui.interact(handle_rect, egui::Id::new("name_col_drag"), Sense::drag());
+    if handle_resp.hovered() || handle_resp.dragged() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
+        ui.painter().line_segment(
+            [egui::pos2(handle_x, header_rect.min.y + 4.0), egui::pos2(handle_x, header_rect.max.y - 4.0)],
+            Stroke::new(2.0, tok.accent),
+        );
+    } else {
+        ui.painter().line_segment(
+            [egui::pos2(handle_x, header_rect.min.y + 8.0), egui::pos2(handle_x, header_rect.max.y - 8.0)],
+            Stroke::new(1.0, tok.border),
+        );
+    }
+    handle_resp.drag_delta().x
 }
 
 fn draw_row(
@@ -594,16 +609,15 @@ fn draw_row(
     );
     x += 22.0;
 
-    // Name
-    let text_color = if is_selected { tok.text } else if entry.is_hidden { tok.dim } else { tok.text };
-    let name_width = col_widths[0] - 30.0;
-    let name = truncate_str(&entry.name, name_width, 13.0);
+    // Name — pixel-accurate truncation
+    let text_color = if entry.is_hidden && !is_selected { tok.dim } else { tok.text };
+    let name_max_px = col_widths[0] - 30.0;
+    let name = truncate_to_px(ui, &entry.name, name_max_px);
     let name_galley = ui.fonts(|f| {
         f.layout_no_wrap(name.clone(), FontId::proportional(13.0), text_color)
     });
     let name_px_width = name_galley.rect.width();
     ui.painter().galley(egui::pos2(x, y - name_galley.rect.height() * 0.5), name_galley, text_color);
-    // オンライン専用ファイルはクラウドバッジを表示
     if entry.is_cloud_only {
         let badge_x = (x + name_px_width + 4.0).min(rect.min.x + col_widths[0] - 20.0);
         ui.painter().text(
@@ -646,11 +660,25 @@ fn draw_row(
     );
 }
 
-fn truncate_str(s: &str, _max_width: f32, _font_size: f32) -> String {
+/// Truncates `s` so it fits within `max_px` pixels at 13pt proportional.
+/// Returns the original string if it fits, otherwise appends "…".
+fn truncate_to_px(ui: &egui::Ui, s: &str, max_px: f32) -> String {
+    if max_px <= 0.0 { return String::new(); }
+    let font_id = FontId::proportional(13.0);
+    let dummy = egui::Color32::WHITE;
+    let full_w = ui.fonts(|f| f.layout_no_wrap(s.to_owned(), font_id.clone(), dummy).rect.width());
+    if full_w <= max_px { return s.to_owned(); }
+
     let chars: Vec<char> = s.chars().collect();
-    if chars.len() > 28 {
-        format!("{}…", chars[..26].iter().collect::<String>())
-    } else {
-        s.to_owned()
+    // Binary search: find the largest prefix that fits with "…" appended
+    let mut lo = 0usize;
+    let mut hi = chars.len();
+    while lo < hi {
+        let mid = lo + (hi - lo + 1) / 2;
+        let candidate: String = chars[..mid].iter().collect::<String>() + "…";
+        let w = ui.fonts(|f| f.layout_no_wrap(candidate, font_id.clone(), dummy).rect.width());
+        if w <= max_px { lo = mid; } else { hi = mid - 1; }
     }
+    if lo == 0 { return "…".to_owned(); }
+    chars[..lo].iter().collect::<String>() + "…"
 }
