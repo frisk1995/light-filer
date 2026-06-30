@@ -339,9 +339,10 @@ impl FerroApp {
         egui::Window::new("パスを開く")
             .collapsible(false)
             .resizable(false)
+            .fixed_size([360.0, 80.0])
             .anchor(egui::Align2::CENTER_CENTER, [0.0, -60.0])
             .show(ctx, |ui| {
-                ui.set_min_width(480.0);
+                ui.set_min_width(340.0);
                 ui.add_space(4.0);
 
                 let resp = ui.add(
