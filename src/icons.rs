@@ -29,6 +29,7 @@ pub const VISIBILITY: char = '\u{e8f4}';
 pub const VISIBILITY_OFF: char = '\u{e8f5}';
 pub const CLOUD: char = '\u{e2bd}';
 pub const CLOUD_SYNC: char = '\u{eb5a}';
+pub const DRIVE_FILE_MOVE: char = '\u{e9a1}';
 
 pub fn icon(c: char) -> String {
     c.to_string()

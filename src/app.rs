@@ -64,6 +64,9 @@ pub struct FerroApp {
     pub pending_action: Option<ContextAction>,
     pub delete_confirm: Option<Vec<PathBuf>>,   // 削除確認待ちパス一覧
     pub rename_state: Option<(PathBuf, String)>,
+    pub path_input_open: bool,
+    pub path_input_text: String,
+    pub path_input_error: bool,
     pub show_hidden: bool,
     pub drives: Vec<DriveInfo>,
     pub onedrive_paths: Vec<(String, PathBuf)>,
@@ -112,6 +115,9 @@ impl FerroApp {
             pending_action: None,
             delete_confirm: None,
             rename_state: None,
+            path_input_open: false,
+            path_input_text: String::new(),
+            path_input_error: false,
             show_hidden: false,
             drives: list_drives(),
             onedrive_paths: list_onedrive_paths(),
@@ -317,12 +323,92 @@ impl FerroApp {
             self.delete_confirm = None;
         }
     }
+
+    pub fn open_path_input(&mut self) {
+        self.path_input_text = self.main_pane.path.to_string_lossy().to_string();
+        self.path_input_error = false;
+        self.path_input_open = true;
+    }
+
+    pub fn show_path_input(&mut self, ctx: &egui::Context) {
+        if !self.path_input_open { return; }
+
+        let mut submitted = false;
+        let mut cancelled = false;
+
+        egui::Window::new("パスを開く")
+            .collapsible(false)
+            .resizable(false)
+            .anchor(egui::Align2::CENTER_CENTER, [0.0, -60.0])
+            .show(ctx, |ui| {
+                ui.set_min_width(480.0);
+                ui.add_space(4.0);
+
+                let resp = ui.add(
+                    egui::TextEdit::singleline(&mut self.path_input_text)
+                        .desired_width(f32::INFINITY)
+                        .font(egui::FontId::monospace(13.0))
+                        .hint_text("C:\\Users\\..."),
+                );
+
+                resp.request_focus();
+
+                if resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                    submitted = true;
+                }
+                if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                    cancelled = true;
+                }
+
+                if self.path_input_error {
+                    ui.add_space(4.0);
+                    ui.label(
+                        egui::RichText::new("パスが見つかりません")
+                            .size(12.0)
+                            .color(egui::Color32::from_rgb(0xc8, 0x37, 0x2c)),
+                    );
+                }
+
+                ui.add_space(8.0);
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui.button(egui::RichText::new("開く").strong()).clicked() {
+                        submitted = true;
+                    }
+                    ui.add_space(8.0);
+                    if ui.button("キャンセル").clicked() {
+                        cancelled = true;
+                    }
+                });
+                ui.add_space(4.0);
+            });
+
+        if submitted {
+            let p = PathBuf::from(self.path_input_text.trim());
+            if p.is_dir() {
+                self.path_input_open = false;
+                self.navigate_to(p);
+            } else if p.is_file() {
+                self.path_input_open = false;
+                let _ = open::that(&p);
+            } else {
+                self.path_input_error = true;
+            }
+        } else if cancelled {
+            self.path_input_open = false;
+        }
+    }
 }
 
 impl eframe::App for FerroApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // Ctrl+L でパス入力ダイアログを開く
+        if ctx.input(|i| i.modifiers.ctrl && i.key_pressed(egui::Key::L)) {
+            self.open_path_input();
+        }
+
         self.process_pending_action(ctx);
         self.show_delete_confirm(ctx);
+        self.show_path_input(ctx);
         self.poll_results();
 
         let tok = self.tokens.clone();
@@ -420,6 +506,12 @@ impl eframe::App for FerroApp {
                     }
                     if ui::nav_button(ui, &tok, icons::REFRESH, true).clicked() {
                         self.refresh();
+                    }
+                    if ui::nav_button(ui, &tok, icons::DRIVE_FILE_MOVE, true)
+                        .on_hover_text("パスを開く (Ctrl+L)")
+                        .clicked()
+                    {
+                        self.open_path_input();
                     }
                     ui.add_space(8.0);
 
