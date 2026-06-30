@@ -2,6 +2,16 @@ use std::path::PathBuf;
 use crossbeam_channel::{Receiver, Sender};
 use egui::{Color32, FontId, Rounding, Sense, Stroke, Vec2};
 
+use crate::{
+    fonts,
+    fs::{DriveInfo, FsMsg, ScanResult, list_drives, list_onedrive_paths, spawn_worker},
+    icons,
+    settings::{self, FontChoice},
+    state::{PaneState, ViewMode},
+    theme::{Accent, Theme, Tokens},
+    ui,
+};
+
 fn config_path() -> Option<PathBuf> {
     let dir = dirs::config_dir()?.join("filox");
     std::fs::create_dir_all(&dir).ok()?;
@@ -29,21 +39,12 @@ fn save_quick_access(qa: &[(String, PathBuf)]) {
     let _ = std::fs::write(path, text);
 }
 
-use crate::{
-    fonts,
-    fs::{DriveInfo, FsMsg, ScanResult, list_drives, list_onedrive_paths, spawn_worker},
-    icons,
-    state::{PaneState, ViewMode},
-    theme::{Accent, Theme, Tokens},
-    ui,
-};
-
 pub enum ContextAction {
     Open(PathBuf),
     CopyPath(PathBuf),
     OpenTerminal(PathBuf),
     NewFolder,
-    NewFile(String),  // default filename with extension
+    NewFile(String),
     Delete(Vec<PathBuf>),
     Rename(PathBuf),
     AddQuickAccess(PathBuf),
@@ -52,7 +53,6 @@ pub enum ContextAction {
 }
 
 pub struct FerroApp {
-    // State
     pub main_pane: PaneState,
     pub view_mode: ViewMode,
     pub theme: Theme,
@@ -62,7 +62,7 @@ pub struct FerroApp {
     pub preview_idx: Option<usize>,
     pub quick_access: Vec<(String, PathBuf)>,
     pub pending_action: Option<ContextAction>,
-    pub delete_confirm: Option<Vec<PathBuf>>,   // 削除確認待ちパス一覧
+    pub delete_confirm: Option<Vec<PathBuf>>,
     pub rename_state: Option<(PathBuf, String)>,
     pub path_input_open: bool,
     pub path_input_text: String,
@@ -70,36 +70,38 @@ pub struct FerroApp {
     pub show_hidden: bool,
     pub drives: Vec<DriveInfo>,
     pub onedrive_paths: Vec<(String, PathBuf)>,
+    pub settings_open: bool,
+    pub font_choice: FontChoice,
 
-    // FS worker
     req_tx: Sender<FsMsg>,
     res_rx: Receiver<ScanResult>,
 }
 
 impl FerroApp {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
-        fonts::setup(&cc.egui_ctx);
+        let saved = settings::load();
+
+        fonts::setup(&cc.egui_ctx, &saved.font);
 
         let start = std::env::current_dir()
             .unwrap_or_else(|_| PathBuf::from("C:\\"));
 
         let (req_tx, res_rx) = spawn_worker();
-
         let _ = req_tx.send(FsMsg::Request(start.clone()));
 
-        let theme = Theme::Dark;
+        let theme = if saved.theme_dark { Theme::Dark } else { Theme::Light };
         let accent = Accent::Rust;
 
         let quick_access = {
-            let saved = load_quick_access();
-            if saved.is_empty() {
+            let saved_qa = load_quick_access();
+            if saved_qa.is_empty() {
                 vec![
-                    ("Home".to_owned(), dirs::home_dir().unwrap_or_else(|| PathBuf::from("C:\\"))),
+                    ("Home".to_owned(),      dirs::home_dir().unwrap_or_else(|| PathBuf::from("C:\\"))),
                     ("Downloads".to_owned(), dirs::download_dir().unwrap_or_else(|| PathBuf::from("C:\\"))),
-                    ("Desktop".to_owned(), dirs::desktop_dir().unwrap_or_else(|| PathBuf::from("C:\\"))),
+                    ("Desktop".to_owned(),   dirs::desktop_dir().unwrap_or_else(|| PathBuf::from("C:\\"))),
                 ]
             } else {
-                saved
+                saved_qa
             }
         };
 
@@ -118,9 +120,11 @@ impl FerroApp {
             path_input_open: false,
             path_input_text: String::new(),
             path_input_error: false,
-            show_hidden: false,
+            show_hidden: saved.show_hidden,
             drives: list_drives(),
             onedrive_paths: list_onedrive_paths(),
+            settings_open: false,
+            font_choice: saved.font,
             req_tx,
             res_rx,
         }
@@ -194,7 +198,6 @@ impl FerroApp {
                 let dir = if path.is_dir() { path.clone() } else {
                     path.parent().unwrap_or(&path).to_path_buf()
                 };
-                // Try Windows Terminal, fall back to PowerShell
                 if std::process::Command::new("wt")
                     .args(["-d", &dir.to_string_lossy()])
                     .spawn()
@@ -224,7 +227,6 @@ impl FerroApp {
                 self.rename_state = Some((target, display_name));
             }
             Some(ContextAction::Delete(paths)) => {
-                // 即削除せず確認ダイアログを表示
                 self.delete_confirm = Some(paths);
             }
             Some(ContextAction::Rename(path)) => {
@@ -351,7 +353,6 @@ impl FerroApp {
                         .font(egui::FontId::monospace(13.0))
                         .hint_text("C:\\Users\\..."),
                 );
-
                 resp.request_focus();
 
                 if resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
@@ -398,6 +399,97 @@ impl FerroApp {
             self.path_input_open = false;
         }
     }
+
+    pub fn show_settings_panel(&mut self, ctx: &egui::Context) {
+        if !self.settings_open { return; }
+
+        let tok = self.tokens.clone();
+        let mut close = false;
+        let mut font_changed = false;
+        let mut changed = false;
+
+        egui::Window::new("設定")
+            .collapsible(false)
+            .resizable(false)
+            .fixed_size([220.0, 340.0])
+            .anchor(egui::Align2::RIGHT_TOP, [-12.0, 84.0])
+            .frame(
+                egui::Frame::window(&ctx.style())
+                    .fill(tok.bg)
+                    .stroke(egui::Stroke::new(1.0, tok.border))
+                    .rounding(egui::Rounding::same(10.0)),
+            )
+            .show(ctx, |ui| {
+                // ── ヘッダー ────────────────────────────────
+                ui.horizontal(|ui| {
+                    ui.label(egui::RichText::new("設定").strong().size(14.0).color(tok.text));
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if ui.small_button(egui::RichText::new("✕").color(tok.dim)).clicked() {
+                            close = true;
+                        }
+                    });
+                });
+                ui.separator();
+                ui.add_space(6.0);
+
+                // ── テーマ ──────────────────────────────────
+                ui.label(egui::RichText::new("テーマ").size(11.0).color(tok.faint));
+                ui.add_space(4.0);
+                ui.horizontal(|ui| {
+                    let is_dark = self.theme == Theme::Dark;
+                    if ui.selectable_label(is_dark, "ダーク").clicked() && !is_dark {
+                        self.theme = Theme::Dark;
+                        self.update_tokens();
+                        changed = true;
+                    }
+                    if ui.selectable_label(!is_dark, "ライト").clicked() && is_dark {
+                        self.theme = Theme::Light;
+                        self.update_tokens();
+                        changed = true;
+                    }
+                });
+
+                ui.add_space(12.0);
+
+                // ── 表示 ────────────────────────────────────
+                ui.label(egui::RichText::new("表示").size(11.0).color(tok.faint));
+                ui.add_space(4.0);
+                if ui.checkbox(&mut self.show_hidden, "隠しファイルを表示").changed() {
+                    self.main_pane.selection.clear();
+                    changed = true;
+                }
+
+                ui.add_space(12.0);
+
+                // ── フォント ────────────────────────────────
+                ui.label(egui::RichText::new("フォント").size(11.0).color(tok.faint));
+                ui.add_space(4.0);
+                for choice in FontChoice::all() {
+                    let selected = self.font_choice == choice;
+                    if ui.selectable_label(selected, choice.label()).clicked() && !selected {
+                        self.font_choice = choice;
+                        font_changed = true;
+                        changed = true;
+                    }
+                }
+
+                ui.add_space(6.0);
+            });
+
+        if font_changed {
+            fonts::setup(ctx, &self.font_choice);
+        }
+        if changed {
+            settings::save(
+                self.theme == Theme::Dark,
+                self.show_hidden,
+                &self.font_choice,
+            );
+        }
+        if close {
+            self.settings_open = false;
+        }
+    }
 }
 
 impl eframe::App for FerroApp {
@@ -410,11 +502,11 @@ impl eframe::App for FerroApp {
         self.process_pending_action(ctx);
         self.show_delete_confirm(ctx);
         self.show_path_input(ctx);
+        self.show_settings_panel(ctx);
         self.poll_results();
 
         let tok = self.tokens.clone();
 
-        // Apply global visuals
         let mut visuals = if self.theme == Theme::Dark {
             egui::Visuals::dark()
         } else {
@@ -430,7 +522,7 @@ impl eframe::App for FerroApp {
         visuals.override_text_color = Some(tok.text);
         ctx.set_visuals(visuals);
 
-        // ── Titlebar ──────────────────────────────────────────────────────────
+        // ── Titlebar ───────────────────────────────────────────────────────
         egui::TopBottomPanel::top("titlebar")
             .frame(
                 egui::Frame::none()
@@ -440,14 +532,9 @@ impl eframe::App for FerroApp {
             .exact_height(38.0)
             .show(ctx, |ui| {
                 ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
-                    // App mark
                     let mark_size = Vec2::splat(18.0);
                     let (mark_rect, _) = ui.allocate_exact_size(mark_size, Sense::hover());
-                    ui.painter().rect_filled(
-                        mark_rect,
-                        Rounding::same(5.0),
-                        tok.accent,
-                    );
+                    ui.painter().rect_filled(mark_rect, Rounding::same(5.0), tok.accent);
                     ui.painter().text(
                         mark_rect.center(),
                         egui::Align2::CENTER_CENTER,
@@ -465,13 +552,11 @@ impl eframe::App for FerroApp {
                     );
                     ui.add_space(4.0);
                     ui.label(
-                        egui::RichText::new("0.4.2")
+                        egui::RichText::new("0.4.6")
                             .font(FontId::monospace(10.0))
                             .color(tok.faint),
                     );
 
-
-                    // Center: current path
                     ui.with_layout(egui::Layout::centered_and_justified(egui::Direction::LeftToRight), |ui| {
                         ui.label(
                             egui::RichText::new(self.main_pane.path.to_string_lossy().as_ref())
@@ -482,7 +567,7 @@ impl eframe::App for FerroApp {
                 });
             });
 
-        // ── Toolbar ───────────────────────────────────────────────────────────
+        // ── Toolbar ────────────────────────────────────────────────────────
         egui::TopBottomPanel::top("toolbar")
             .frame(
                 egui::Frame::none()
@@ -493,8 +578,7 @@ impl eframe::App for FerroApp {
             .exact_height(46.0)
             .show(ctx, |ui| {
                 ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
-                    // ── ナビゲーションボタン（左固定）──
-                    let can_back = !self.main_pane.back_stack.is_empty();
+                    let can_back    = !self.main_pane.back_stack.is_empty();
                     let can_forward = !self.main_pane.forward_stack.is_empty();
                     if ui::nav_button(ui, &tok, icons::CHEVRON_LEFT, can_back).clicked() {
                         self.navigate_back();
@@ -516,9 +600,18 @@ impl eframe::App for FerroApp {
                     }
                     ui.add_space(8.0);
 
-                    // ── RTL で右側を埋め、パンくずは残り幅へ ──
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        // View segment switcher（最右端）
+                        // 設定ボタン（最右端）
+                        let settings_active = self.settings_open;
+                        if ui::nav_button_active(ui, &tok, icons::SETTINGS_ICON, settings_active)
+                            .on_hover_text("設定")
+                            .clicked()
+                        {
+                            self.settings_open = !self.settings_open;
+                        }
+                        ui.add_space(4.0);
+
+                        // View segment switcher
                         egui::Frame::none()
                             .fill(tok.elev)
                             .rounding(Rounding::same(8.0))
@@ -554,23 +647,7 @@ impl eframe::App for FerroApp {
                             });
                         ui.add_space(8.0);
 
-                        // Theme toggle
-                        let theme_icon = if self.theme == Theme::Dark { icons::LIGHT_MODE } else { icons::DARK_MODE };
-                        if ui::nav_button(ui, &tok, theme_icon, true).clicked() {
-                            self.theme = if self.theme == Theme::Dark { Theme::Light } else { Theme::Dark };
-                            self.update_tokens();
-                        }
-
-                        // Hidden files toggle
-                        let vis_icon = if self.show_hidden { icons::VISIBILITY } else { icons::VISIBILITY_OFF };
-                        let vis_tip = if self.show_hidden { "隠しファイルを非表示" } else { "隠しファイルを表示" };
-                        if ui::nav_button(ui, &tok, vis_icon, true).on_hover_text(vis_tip).clicked() {
-                            self.show_hidden = !self.show_hidden;
-                            self.main_pane.selection.clear();
-                        }
-                        ui.add_space(8.0);
-
-                        // ── パンくず（RTL 内で残り幅を左から埋める）──
+                        // ── パンくず ──
                         let avail_w = ui.available_width().max(40.0);
                         ui.allocate_ui_with_layout(
                             Vec2::new(avail_w, 38.0),
@@ -624,7 +701,7 @@ impl eframe::App for FerroApp {
                 });
             });
 
-        // ── Status bar ────────────────────────────────────────────────────────
+        // ── Status bar ────────────────────────────────────────────────────
         {
             let tok2 = tok.clone();
             egui::TopBottomPanel::bottom("statusbar")
@@ -642,20 +719,12 @@ impl eframe::App for FerroApp {
                                 .font(FontId::monospace(11.0))
                                 .color(tok2.dim),
                         );
-
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             let speed = if let Some(ms) = self.main_pane.scan_time_ms {
-                                let free = self
-                                    .main_pane
-                                    .free_bytes
+                                let free = self.main_pane.free_bytes
                                     .map(|b| format!("{:.0} GB free", b as f64 / 1024.0_f64.powi(3)))
                                     .unwrap_or_default();
-                                format!(
-                                    "{} {}indexed in {} ms",
-                                    free,
-                                    icons::BOLT,
-                                    ms
-                                )
+                                format!("{} {}indexed in {} ms", free, icons::BOLT, ms)
                             } else {
                                 "Scanning…".to_owned()
                             };
@@ -669,10 +738,10 @@ impl eframe::App for FerroApp {
                 });
         }
 
-        // ── Main content area ─────────────────────────────────────────────────
+        // ── Main content ──────────────────────────────────────────────────
         match self.view_mode {
             ViewMode::Explorer => ui::explorer::show(self, ctx),
-            ViewMode::Modern => ui::modern::show(self, ctx),
+            ViewMode::Modern   => ui::modern::show(self, ctx),
         }
 
         if self.main_pane.loading {
@@ -697,14 +766,10 @@ fn unique_path(dir: &std::path::Path, stem: &str, ext: &str) -> PathBuf {
         }
     };
     let base = make("");
-    if !base.exists() {
-        return base;
-    }
+    if !base.exists() { return base; }
     for i in 2u32.. {
         let candidate = make(&format!(" ({})", i));
-        if !candidate.exists() {
-            return candidate;
-        }
+        if !candidate.exists() { return candidate; }
     }
     base
 }

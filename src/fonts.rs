@@ -1,4 +1,5 @@
 use egui::{FontData, FontDefinitions, FontFamily};
+use crate::settings::FontChoice;
 
 #[cfg(have_material_font)]
 const MATERIAL_BYTES: &[u8] = include_bytes!("../assets/fonts/MaterialSymbolsRounded.ttf");
@@ -20,55 +21,71 @@ const NOTOSANSJP_BYTES: &[u8] = include_bytes!("../assets/fonts/NotoSansJP-Regul
 #[cfg(not(have_notosansjp_font))]
 const NOTOSANSJP_BYTES: &[u8] = &[];
 
-pub fn setup(ctx: &egui::Context) {
+pub fn setup(ctx: &egui::Context, choice: &FontChoice) {
     let mut fonts = FontDefinitions::default();
 
-    // Meiryo — covers both Latin and Japanese, loaded from Windows system fonts.
-    // Inserted at position 0 so it takes priority over all bundled fonts.
-    let meiryo_paths: &[(&str, u32)] = &[
-        ("C:\\Windows\\Fonts\\meiryo.ttc", 0),
-        ("C:\\Windows\\Fonts\\MEIRYO.TTC", 0),
-    ];
-    let mut meiryo_loaded = false;
-    for (path, index) in meiryo_paths {
-        match std::fs::read(path) {
-            Ok(data) => {
-                crate::log_info!("Meiryo loaded: {}", path);
-                let mut fd = FontData::from_owned(data);
-                fd.index = *index;
-                fonts.font_data.insert("Meiryo".to_owned(), fd);
-                fonts.families.entry(FontFamily::Proportional).or_default().insert(0, "Meiryo".to_owned());
-                fonts.families.entry(FontFamily::Monospace).or_default().insert(0, "Meiryo".to_owned());
-                meiryo_loaded = true;
-                break;
+    // Primary font — chosen by user, inserted at position 0
+    match choice {
+        FontChoice::Meiryo => {
+            load_system(&mut fonts, &[
+                ("C:\\Windows\\Fonts\\meiryo.ttc",  0),
+                ("C:\\Windows\\Fonts\\MEIRYO.TTC",  0),
+            ]);
+        }
+        FontChoice::YuGothic => {
+            load_system(&mut fonts, &[
+                ("C:\\Windows\\Fonts\\YuGothR.ttc", 0),
+                ("C:\\Windows\\Fonts\\YuGothM.ttc", 0),
+            ]);
+        }
+        FontChoice::BizUdGothic => {
+            load_system(&mut fonts, &[
+                ("C:\\Windows\\Fonts\\BIZ-UDGothicR.ttc", 0),
+            ]);
+        }
+        FontChoice::MsGothic => {
+            load_system(&mut fonts, &[
+                ("C:\\Windows\\Fonts\\msgothic.ttc", 0),
+            ]);
+        }
+        FontChoice::NotoSansJp => {
+            if !NOTOSANSJP_BYTES.is_empty() {
+                fonts.font_data.insert("PrimaryFont".to_owned(), FontData::from_static(NOTOSANSJP_BYTES));
+                fonts.families.entry(FontFamily::Proportional).or_default().insert(0, "PrimaryFont".to_owned());
+                fonts.families.entry(FontFamily::Monospace).or_default().insert(0, "PrimaryFont".to_owned());
+                crate::log_info!("Primary font: bundled NotoSansJP");
             }
-            Err(e) => { crate::log_info!("Meiryo skip: {} — {}", path, e); }
+        }
+        FontChoice::IbmPlexSans => {
+            if !IBMPLEX_BYTES.is_empty() {
+                fonts.font_data.insert("IBMPlexSans".to_owned(), FontData::from_static(IBMPLEX_BYTES));
+                fonts.families.entry(FontFamily::Proportional).or_default().insert(0, "IBMPlexSans".to_owned());
+                fonts.families.entry(FontFamily::Monospace).or_default().insert(0, "IBMPlexSans".to_owned());
+                crate::log_info!("Primary font: bundled IBMPlexSans");
+            }
         }
     }
-    if !meiryo_loaded {
-        crate::log_info!("WARNING: Meiryo not found; falling back to bundled fonts");
-    }
 
-    // IBM Plex Sans — fallback for Latin glyphs Meiryo may not cover
-    if !IBMPLEX_BYTES.is_empty() {
-        fonts.font_data.insert("IBMPlexSans".to_owned(), FontData::from_static(IBMPLEX_BYTES));
-        fonts.families.entry(FontFamily::Proportional).or_default().push("IBMPlexSans".to_owned());
-    }
-
-    // JetBrains Mono — fallback for monospace
+    // JetBrains Mono — monospace fallback
     if !JETBRAINS_BYTES.is_empty() {
         fonts.font_data.insert("JetBrainsMono".to_owned(), FontData::from_static(JETBRAINS_BYTES));
         fonts.families.entry(FontFamily::Monospace).or_default().push("JetBrainsMono".to_owned());
     }
 
-    // Noto Sans JP — fallback for CJK glyphs not in Meiryo
-    if !NOTOSANSJP_BYTES.is_empty() {
+    // IBM Plex Sans — Latin fallback (skip if already primary)
+    if !matches!(choice, FontChoice::IbmPlexSans) && !IBMPLEX_BYTES.is_empty() {
+        fonts.font_data.insert("IBMPlexSans".to_owned(), FontData::from_static(IBMPLEX_BYTES));
+        fonts.families.entry(FontFamily::Proportional).or_default().push("IBMPlexSans".to_owned());
+    }
+
+    // Noto Sans JP — CJK fallback (skip if already primary)
+    if !matches!(choice, FontChoice::NotoSansJp) && !NOTOSANSJP_BYTES.is_empty() {
         fonts.font_data.insert("NotoSansJP".to_owned(), FontData::from_static(NOTOSANSJP_BYTES));
         fonts.families.entry(FontFamily::Proportional).or_default().push("NotoSansJP".to_owned());
         fonts.families.entry(FontFamily::Monospace).or_default().push("NotoSansJP".to_owned());
     }
 
-    // Material Symbols — always last so icon PUA glyphs don't shadow text
+    // Material Symbols — always last so PUA glyphs don't shadow text
     if !MATERIAL_BYTES.is_empty() {
         fonts.font_data.insert("MaterialSymbols".to_owned(), FontData::from_static(MATERIAL_BYTES));
         fonts.families.entry(FontFamily::Proportional).or_default().push("MaterialSymbols".to_owned());
@@ -76,4 +93,22 @@ pub fn setup(ctx: &egui::Context) {
     }
 
     ctx.set_fonts(fonts);
+}
+
+fn load_system(fonts: &mut FontDefinitions, candidates: &[(&str, u32)]) {
+    for (path, index) in candidates {
+        match std::fs::read(path) {
+            Ok(data) => {
+                crate::log_info!("Primary font loaded: {}", path);
+                let mut fd = FontData::from_owned(data);
+                fd.index = *index;
+                fonts.font_data.insert("PrimaryFont".to_owned(), fd);
+                fonts.families.entry(FontFamily::Proportional).or_default().insert(0, "PrimaryFont".to_owned());
+                fonts.families.entry(FontFamily::Monospace).or_default().insert(0, "PrimaryFont".to_owned());
+                return;
+            }
+            Err(e) => { crate::log_info!("Font skip: {} — {}", path, e); }
+        }
+    }
+    crate::log_info!("WARNING: no system font found for this choice");
 }

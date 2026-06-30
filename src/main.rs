@@ -6,6 +6,7 @@ mod fonts;
 mod fs;
 mod icons;
 pub mod log;
+mod settings;
 mod state;
 mod theme;
 mod ui;

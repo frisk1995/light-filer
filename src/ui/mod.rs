@@ -25,6 +25,26 @@ pub fn nav_button(ui: &mut Ui, tok: &Tokens, icon: char, enabled: bool) -> Respo
     resp
 }
 
+pub fn nav_button_active(ui: &mut Ui, tok: &Tokens, icon: char, active: bool) -> Response {
+    let size = Vec2::splat(30.0);
+    let (rect, resp) = ui.allocate_exact_size(size, egui::Sense::click());
+    let paint = ui.painter();
+    if active {
+        paint.rect_filled(rect, egui::Rounding::same(7.0), tok.accent_soft);
+    } else if resp.hovered() {
+        paint.rect_filled(rect, egui::Rounding::same(7.0), tok.hover);
+    }
+    let color = if active { tok.accent } else if resp.hovered() { tok.text } else { tok.dim };
+    paint.text(
+        rect.center(),
+        egui::Align2::CENTER_CENTER,
+        icon.to_string(),
+        FontId::proportional(20.0),
+        color,
+    );
+    resp
+}
+
 pub fn segment_button(
     ui: &mut Ui,
     tok: &Tokens,
