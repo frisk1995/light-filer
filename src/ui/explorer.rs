@@ -352,6 +352,18 @@ fn show_list(app: &mut FerroApp, ctx: &egui::Context, tok: &Tokens) {
                 .collect();
             let selection = app.main_pane.selection.clone();
 
+            // F2 → 選択中の1アイテムをリネーム
+            if ctx.input(|i| i.key_pressed(egui::Key::F2))
+                && app.rename_state.is_none()
+                && selection.len() == 1
+            {
+                if let Some(&idx) = selection.iter().next() {
+                    if let Some(entry) = entries.get(idx) {
+                        app.rename_state = Some((entry.path.clone(), entry.name.clone()));
+                    }
+                }
+            }
+
             // Background right-click (empty area)
             let bg_resp = ui.interact(
                 ui.available_rect_before_wrap(),
