@@ -509,6 +509,14 @@ impl eframe::App for FerroApp {
             self.open_path_input();
         }
 
+        // マウスサイドボタン（戻る / 進む）
+        if ctx.input(|i| i.pointer.button_clicked(egui::PointerButton::Extra1)) {
+            self.navigate_back();
+        }
+        if ctx.input(|i| i.pointer.button_clicked(egui::PointerButton::Extra2)) {
+            self.navigate_forward();
+        }
+
         self.process_pending_action(ctx);
         self.show_delete_confirm(ctx);
         self.show_path_input(ctx);
