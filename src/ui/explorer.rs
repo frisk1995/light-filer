@@ -313,7 +313,7 @@ fn show_folder_tree(ui: &mut egui::Ui, tok: &Tokens, app: &mut FerroApp) {
         });
 
         // ドロップターゲット（サイドバーのフォルダーにファイルを移動）
-        if egui::DragAndDrop::has_any_payload(ui.ctx()) && resp.hovered() {
+        if egui::DragAndDrop::has_any_payload(ui.ctx()) && resp.contains_pointer() {
             paint.rect_stroke(rect, Rounding::same(6.0), Stroke::new(2.0, tok.accent));
         }
         if let Some(payload) = resp.dnd_release_payload::<Vec<std::path::PathBuf>>() {
@@ -566,7 +566,7 @@ fn show_list(app: &mut FerroApp, ctx: &egui::Context, tok: &Tokens) {
 
                             // ── ドロップターゲット（フォルダーのみ）──────────
                             if entry.kind == EntryKind::Dir {
-                                if egui::DragAndDrop::has_any_payload(ui.ctx()) && resp.hovered() {
+                                if egui::DragAndDrop::has_any_payload(ui.ctx()) && resp.contains_pointer() {
                                     ui.painter().rect_stroke(
                                         rect, Rounding::same(3.0), Stroke::new(2.0, tok.accent),
                                     );
